@@ -49,7 +49,20 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  	//to stride
+	bool need_resched;
+	struct run_queue *rq;
+	int time_slice;
+	uint stride;	
+	uint priority;
+	heap_entry_t run_pool;
 };
+
+//for stride
+
+
+
+
 
 // Process memory is laid out contiguously, low addresses first:
 //   text
