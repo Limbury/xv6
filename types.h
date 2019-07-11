@@ -2,12 +2,19 @@
 #define TYPES_H
 
 
-#define NULL ((void*) 0)
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+
+
+#define MAX_TIME_SLICE 5
+
 typedef unsigned int   uint;
 typedef unsigned short ushort;
 typedef unsigned char  uchar;
 typedef uint pde_t;
 typedef int bool;
+typedef int int32_t;
 
 struct heap_entry {
      struct heap_entry *parent, *left, *right;
@@ -182,12 +189,14 @@ __list_del(list_entry_t *prev, list_entry_t *next) {
     prev->next = next;
     next->prev = prev;
 }
+#define offsetof(type, member)                                      \
+    ((uint)(&((type *)0)->member))
 
 #define to_struct(ptr, type, member)                               \
     ((type *)((char *)(ptr) - offsetof(type, member)))
 
 #define le2proc(le, member)         \
-    to_struct((le), struct proc_struct, member)
+    to_struct((le), struct proc, member)
 
 
 #endif    

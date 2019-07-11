@@ -7,10 +7,90 @@
 #include "proc.h"
 #include "spinlock.h"
 
+#define BIG_STRIDE    0x7FFFFFFF
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
 } ptable;
+/***************myscheduler*****************/
+
+
+
+static list_entry_t timer_list;
+static struct run_queue *rq;
+
+static struct run_queue __rq;
+
+/*********************************************/
+
+/***************stride****************************/
+
+static int
+proc_stride_comp_f(void *a, void *b)
+{
+     struct proc *p = le2proc(a, run_pool);
+     struct proc *q = le2proc(b, run_pool);
+     int32_t c = p->stride - q->stride;
+     if (c > 0) return 1;
+     else if (c == 0) return 0;
+     else return -1;
+}
+
+static void
+stride_init(struct run_queue *rq) {
+     list_init(&(rq->run_list));
+     rq->run_pool = NULL;
+     rq->proc_num = 0;
+}
+
+static void
+stride_enqueue(struct run_queue *rq, struct proc *proc) {
+     rq->run_pool =
+          heap_insert(rq->run_pool, &(proc->run_pool), proc_stride_comp_f);
+     if (proc->time_slice == 0 || proc->time_slice > rq->max_time_slice) {
+          proc->time_slice = rq->max_time_slice;
+     }
+     proc->rq = rq;
+     rq->proc_num ++;
+}
+
+
+static void
+stride_dequeue(struct run_queue *rq, struct proc *proc) {
+     rq->run_pool =
+          heap_remove(rq->run_pool, &(proc->run_pool), proc_stride_comp_f);
+     rq->proc_num --;
+}
+
+static struct proc *
+stride_pick_next(struct run_queue *rq) {
+     if (rq->run_pool == NULL) return NULL;
+     struct proc *p = le2proc(rq->run_pool, run_pool);
+     if (p->priority == 0)
+          p->stride += BIG_STRIDE;
+     else p->stride += BIG_STRIDE / p->priority;
+     return p;
+}
+
+void
+stride_proc_tick(struct proc *proc) {
+     if (proc->time_slice > 0) {
+          proc->time_slice --;
+     }
+     if (proc->time_slice == 0) {
+          proc->need_resched = 1;
+     }
+}
+
+void sched_init(void){
+	list_init(&timer_list);
+	rq = &__rq;
+    	rq->max_time_slice = MAX_TIME_SLICE;
+    	stride_init(rq);
+}
+
+/**************************************/
 
 static struct proc *initproc;
 
@@ -111,7 +191,6 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
-
   return p;
 }
 
@@ -124,7 +203,6 @@ userinit(void)
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
   p = allocproc();
-  
   initproc = p;
   if((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
@@ -149,7 +227,7 @@ userinit(void)
   acquire(&ptable.lock);
 
   p->state = RUNNABLE;
-
+	stride_enqueue(rq,p);
   release(&ptable.lock);
 }
 
@@ -183,7 +261,7 @@ fork(void)
   int i, pid;
   struct proc *np;
   struct proc *curproc = myproc();
-
+	//cprintf("the proc pid is %d\n",curproc->pid);
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;
@@ -217,7 +295,6 @@ fork(void)
   np->state = RUNNABLE;
 
   release(&ptable.lock);
-
   return pid;
 }
 
@@ -278,6 +355,7 @@ wait(void)
   
   acquire(&ptable.lock);
   for(;;){
+	//cprintf("wait wait wait!\n");
     // Scan through table looking for exited children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -311,6 +389,7 @@ wait(void)
   }
 }
 
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -325,27 +404,31 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  
   for(;;){
     // Enable interrupts on this processor.
     sti();
-
+		
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+	/*
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
-
+	*/
+	//for(p=ptable.proc;p<&ptable.proc[NPROC];p++)
+	//	cprintf("%d %s %s\n", p->pid, p->state, p->name);
+	if((p = stride_pick_next(rq))!= NULL )
+		stride_dequeue(rq,p);
+	if(p != NULL ){
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
+	//cprintf("in proc.c/scheduler:switch to %s\n",p->name);
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
-
       swtch(&(c->scheduler), p->context);
       switchkvm();
-
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;
@@ -377,6 +460,11 @@ sched(void)
   if(readeflags()&FL_IF)
     panic("sched interruptible");
   intena = mycpu()->intena;
+    p->need_resched = 0;
+    if(p->state == RUNNABLE||p->state == SLEEPING){
+	stride_enqueue(rq,p);
+  }
+	//cprintf("in proc.c/sched:switch from %s\n",p->name);
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
 }
@@ -399,7 +487,6 @@ forkret(void)
   static int first = 1;
   // Still holding ptable.lock from scheduler.
   release(&ptable.lock);
-
   if (first) {
     // Some initialization functions must be run in the context
     // of a regular process (e.g., they call sleep), and thus cannot
@@ -438,7 +525,7 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-
+	//cprintf("in proc.c/sleep:%s to be sleeped!\n",p->name);
   sched();
 
   // Tidy up.

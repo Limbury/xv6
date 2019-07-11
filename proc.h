@@ -34,6 +34,13 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct run_queue{
+   list_entry_t run_list;
+    unsigned int proc_num;
+    int max_time_slice;
+   heap_entry_t* run_pool;	
+};
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -50,16 +57,15 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   	//to stride
-	bool need_resched;
-	struct run_queue *rq;
-	int time_slice;
-	uint stride;	
-	uint priority;
-	heap_entry_t run_pool;
+   bool need_resched;
+   struct run_queue *rq;
+   int time_slice;
+   uint stride;	
+   uint priority;
+   heap_entry_t run_pool;
 };
 
 //for stride
-
 
 
 
