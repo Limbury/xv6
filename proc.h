@@ -67,7 +67,7 @@ struct proc {
 
 //for stride
 
-
+extern struct proc *current;
 
 
 // Process memory is laid out contiguously, low addresses first:

@@ -15,7 +15,7 @@ struct {
 } ptable;
 /***************myscheduler*****************/
 
-
+struct proc *current;
 
 static list_entry_t timer_list;
 static struct run_queue *rq;
@@ -75,6 +75,7 @@ stride_pick_next(struct run_queue *rq) {
 
 void
 stride_proc_tick(struct proc *proc) {
+	//cprintf("tick be called!\n");
      if (proc->time_slice > 0) {
           proc->time_slice --;
      }
@@ -204,6 +205,7 @@ userinit(void)
 
   p = allocproc();
   initproc = p;
+	current=p;
   if((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
   inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
@@ -227,7 +229,7 @@ userinit(void)
   acquire(&ptable.lock);
 
   p->state = RUNNABLE;
-	stride_enqueue(rq,p);
+  stride_enqueue(rq,p);
   release(&ptable.lock);
 }
 
@@ -289,11 +291,10 @@ fork(void)
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
   pid = np->pid;
-
   acquire(&ptable.lock);
 
   np->state = RUNNABLE;
-
+  stride_enqueue(rq,np);
   release(&ptable.lock);
   return pid;
 }
@@ -356,12 +357,15 @@ wait(void)
   acquire(&ptable.lock);
   for(;;){
 	//cprintf("wait wait wait!\n");
+	//cprintf("%d\n",curproc->time_slice);
     // Scan through table looking for exited children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+	//cprintf("%d\n",p->pid);
       if(p->parent != curproc)
         continue;
       havekids = 1;
+	
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
@@ -383,7 +387,7 @@ wait(void)
       release(&ptable.lock);
       return -1;
     }
-
+	
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(curproc, &ptable.lock);  //DOC: wait-sleep
   }
@@ -417,14 +421,16 @@ scheduler(void)
 	*/
 	//for(p=ptable.proc;p<&ptable.proc[NPROC];p++)
 	//	cprintf("%d %s %s\n", p->pid, p->state, p->name);
-	if((p = stride_pick_next(rq))!= NULL )
+	//cprintf("chosee a process to switch\n");
+	if((p = stride_pick_next(rq))!= NULL ) {
 		stride_dequeue(rq,p);
-	if(p != NULL ){
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
-	//cprintf("in proc.c/scheduler:switch to %s\n",p->name);
+	//if(p->pid!=1)
+		//cprintf("in proc.c/scheduler:switch to %d\n",p->pid);
       c->proc = p;
+	current=p;
       switchuvm(p);
       p->state = RUNNING;
       swtch(&(c->scheduler), p->context);
@@ -461,10 +467,8 @@ sched(void)
     panic("sched interruptible");
   intena = mycpu()->intena;
     p->need_resched = 0;
-    if(p->state == RUNNABLE||p->state == SLEEPING){
-	stride_enqueue(rq,p);
-  }
-	//cprintf("in proc.c/sched:switch from %s\n",p->name);
+	//if(p->pid!=1)
+	//	cprintf("in proc.c/sched:switch from %d\n",p->pid);
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
 }
@@ -475,6 +479,7 @@ yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
   myproc()->state = RUNNABLE;
+	stride_enqueue(rq,myproc());
   sched();
   release(&ptable.lock);
 }
@@ -547,8 +552,10 @@ wakeup1(void *chan)
   struct proc *p;
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan)
+    if(p->state == SLEEPING && p->chan == chan){
       p->state = RUNNABLE;
+	stride_enqueue(rq,p);
+	}
 }
 
 // Wake up all processes sleeping on chan.
