@@ -76,10 +76,13 @@ stride_pick_next(struct run_queue *rq) {
 void
 stride_proc_tick(struct proc *proc) {
 	//cprintf("tick be called!\n");
+	//cprintf("process %d 's time_sice remain %d\n",proc->pid,proc->time_slice);
      if (proc->time_slice > 0) {
           proc->time_slice --;
+	//cprintf("use some times!left %d\n",proc->time_slice);
      }
      if (proc->time_slice == 0) {
+	//cprintf("now time out,%d need switch!\n",proc->pid);
           proc->need_resched = 1;
      }
 }
@@ -169,7 +172,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-
+	p->priority=3;
+	p->stride=BIG_STRIDE/p->priority;
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -580,8 +584,10 @@ kill(int pid)
     if(p->pid == pid){
       p->killed = 1;
       // Wake process from sleep if necessary.
-      if(p->state == SLEEPING)
+      if(p->state == SLEEPING){
         p->state = RUNNABLE;
+	 stride_enqueue(rq,p);
+	}
       release(&ptable.lock);
       return 0;
     }
