@@ -7,7 +7,7 @@
 #include "proc.h"
 #include "spinlock.h"
 
-#define BIG_STRIDE    0x7FFFFFFF
+#define BIG_STRIDE    0x00000400
 
 struct {
   struct spinlock lock;
@@ -82,6 +82,8 @@ stride_proc_tick(struct proc *proc) {
 	//cprintf("use some times!left %d\n",proc->time_slice);
      }
      if (proc->time_slice == 0) {
+	proc->runtimes++;
+	//cprintf("%d\n",proc->runtimes);
 	//cprintf("now time out,%d need switch!\n",proc->pid);
           proc->need_resched = 1;
      }
@@ -172,8 +174,9 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-	p->priority=3;
-	p->stride=BIG_STRIDE/p->priority;
+	p->priority=0;
+	p->stride=BIG_STRIDE;
+	p->runtimes=0;
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -293,7 +296,7 @@ fork(void)
   np->cwd = idup(curproc->cwd);
 
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
-
+	//cprintf("create pid(kids/parent):%d\n",np->pid);
   pid = np->pid;
   acquire(&ptable.lock);
 

@@ -62,6 +62,7 @@ struct proc {
    int time_slice;
    uint stride;	
    uint priority;
+	uint runtimes;
    heap_entry_t run_pool;
 };
 
